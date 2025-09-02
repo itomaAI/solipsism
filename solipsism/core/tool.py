@@ -1,10 +1,16 @@
 from abc import ABC, abstractmethod
 from asyncio import Queue
 from .lpml import Element
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .system import System
 
 
 class BaseTool(ABC):
     """すべてのツールのための抽象基底クラス"""
+
+    def __init__(self):
+        self.system: 'System' = None
 
     @property
     @abstractmethod
@@ -12,12 +18,17 @@ class BaseTool(ABC):
         """ツールの名前。LPMLのタグ名に対応します。"""
         pass
 
+    @property
     @abstractmethod
-    async def run(self, element: Element, result_queue: Queue):
+    def definition(self) -> str:
+        """ツールのに対応するタグの定義。"""
+        pass
+
+    @abstractmethod
+    async def run(self, element: Element):
         """
         ツールを実行する非同期メソッド。
-        実行結果はElement型でなければならない。
+        実行結果は self.system.result_queue に Element 型で書き込まなければならない。
         :param element: LLMによって出力されたLPML要素
-        :param result_queue: 実行結果を格納するキュー
         """
         pass

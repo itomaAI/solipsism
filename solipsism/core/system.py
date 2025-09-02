@@ -17,12 +17,20 @@ class System:
         logger.info("System initialized.")
 
     def add_tool(self, tool: BaseTool):
-        """システムにツールを登録する"""
+        """システムにツールを登録し、ツールにシステムインスタンスへの参照を渡す"""
         if tool.name in self.tools:
             logger.warning(
                 f"Tool '{tool.name}' is already registered. Overwriting.")
+
+        tool.system = self  # ツールにシステムインスタンスを渡す
         self.tools[tool.name] = tool
         logger.info(f"Tool '{tool.name}' has been added.")
+
+    def get_tool_definitions(self):
+        definitions = ""
+        for name, tool in self.tools.items():
+            definitions += tool.definition + "\n\n"
+        return definitions.strip()
 
     async def process_llm_output(self, lpml_string: str) -> int:
         """
@@ -31,7 +39,8 @@ class System:
         """
         logger.info("Processing LLM output for tool execution...")
         try:
-            exclude = ["send", "code"] + list(self.tools.keys())
+            exclude = ["define_tag", "rule", "send", "code"]
+            exclude += list(self.tools.keys())
             tree = parse(lpml_string, exclude=exclude)
         except Exception as e:
             logger.error(f"Failed to parse LPML string: {e}", exc_info=True)
@@ -42,7 +51,8 @@ class System:
             tool_elements = findall(tree, tag_name)
             for element in tool_elements:
                 logger.info(f"Found tool tag: <{tag_name}>. Scheduling execution.")
-                task = asyncio.create_task(tool.run(element, self.result_queue))
+                # runにキューを渡さず、タスクを作成する
+                task = asyncio.create_task(tool.run(element))
                 tasks_to_run.append(task)
 
         if tasks_to_run:

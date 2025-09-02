@@ -1,4 +1,5 @@
 import re
+import uuid
 from typing import List, Dict, Union, Optional
 
 
@@ -13,6 +14,7 @@ PATTERN_TAG_START = rf'<([^/>\s\n]+)((?:{PATTERN_ATTRIBUTE_NO_CAPTURE})*)\s*>'
 PATTERN_TAG_END = r'</([^/>\s\n]+)\s*>'
 PATTERN_TAG_EMPTY = rf'<([^/>\s\n]+)((?:{PATTERN_ATTRIBUTE_NO_CAPTURE})*)\s*/>'
 PATTERN_TAG = rf'({PATTERN_TAG_START}|{PATTERN_TAG_END}|{PATTERN_TAG_EMPTY})'
+PATTERN_BACKTICK = r'`(.*?)`'
 
 
 def _parse_attributes(text: str) -> Attributes:
@@ -20,6 +22,24 @@ def _parse_attributes(text: str) -> Attributes:
     for k, v1, v2 in re.findall(PATTERN_ATTRIBUTE, text):
         attributes[k] = v1 or v2
     return attributes
+
+
+def _restore_protected_content(
+        tree: LPMLTree, protected: Dict[str, str]) -> LPMLTree:
+    """Recursively traverse the tree and restore placeholders."""
+    restored_tree: LPMLTree = []
+    for item in tree:
+        if isinstance(item, str):
+            # Restore all placeholders found in the string content
+            for placeholder, original in protected.items():
+                item = item.replace(placeholder, original)
+            restored_tree.append(item)
+        elif isinstance(item, dict):
+            if isinstance(item['content'], list):
+                item['content'] = _restore_protected_content(
+                    item['content'], protected)
+            restored_tree.append(item)
+    return restored_tree
 
 
 def parse(text: str, strip: bool = False, 
@@ -33,6 +53,19 @@ def parse(text: str, strip: bool = False,
     Returns:
         LPMLTree: The parsed tree.
     """
+    protected_content: Dict[str, str] = {}
+
+    # 1. Protect phase: Replace backticked content with unique placeholders
+    def protect_match(match):
+        # Generate a unique placeholder that is extremely unlikely to collide
+        placeholder = f"__PROTECTED_{uuid.uuid4().hex}__"
+        # Store the original content (including backticks)
+        protected_content[placeholder] = match.group(0)
+        return placeholder
+
+    text = re.sub(
+        PATTERN_BACKTICK, protect_match, text, flags=re.DOTALL)
+
     if exclude is None:
         exclude = []
 
@@ -107,6 +140,7 @@ def parse(text: str, strip: bool = False,
         tags_remain = [e["tag"] for e in stack][1:]
         print(f'Warning: Unclosed elements remain: {tags_remain}')
 
+    tree = _restore_protected_content(tree, protected_content)
     return tree
 
 

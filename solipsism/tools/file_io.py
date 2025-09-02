@@ -1,18 +1,20 @@
 import os
+import shutil
 import logging
 from asyncio import Queue
 from ..core import tool
 from ..core import lpml
 
-
 logger = logging.getLogger(__name__)
 
 
+# --- Tag Definitions for LLM ---
+
 DEFINE_LIST_FILES = """
-<define_tag>
-Lists all files and directories at the given path.
+<define_tag name="list_files">
+Lists all files and directories at a given path.
 Attributes:
-    - path (optional) : The directory path. Default is root.
+    - path (required): The directory path to list.
 </define_tag>
 """.strip()
 
@@ -21,222 +23,277 @@ DEFINE_READ_FILE = """
 Reads the content of a specified file.
 Attributes:
     - path (required): The path to the file.
-    - line_numbers (optional): If "true", prepends line numbers to the output. Defaults to "false".
+    - line_numbers (optional): If "true", prepends line numbers to the output.
 </define_tag>
 """.strip()
 
 DEFINE_WRITE_FILE = """
 <define_tag name="write_file">
-Writes or modifies a file. The content to be written is placed inside the tag.
+Writes or modifies a file. The content is placed inside the tag.
 Attributes:
     - path (required): The path to the file.
-    - mode (optional): The writing mode. Can be "overwrite", "append", "replace_lines", or "insert_at_line". Defaults to "overwrite".
-    - start_line (for replace_lines): The starting line number to replace (inclusive, 1-indexed).
-    - end_line (for replace_lines): The ending line number to replace (inclusive, 1-indexed).
-    - line (for insert_at_line): The line number at which to insert the content (1-indexed).
-Example:
-    <write_file path="./memo.txt" mode="append">This is a new line.</write_file>
-    <write_file path="./config.py" mode="replace_lines" start_line="5" end_line="5">API_KEY = "new_key"</write_file>
+    - mode (optional): "overwrite", "append", "replace_lines", "insert_at_line". Default: "overwrite".
+    - start_line, end_line (for replace_lines): The 1-indexed line range to replace.
+    - line (for insert_at_line): The 1-indexed line number to insert at.
+</define_tag>
+""".strip()
+
+DEFINE_CREATE_DIRECTORY = """
+<define_tag name="create_directory">
+Creates a new directory.
+Attributes:
+    - path (required): The path of the directory to create.
+    - parents (optional): If "true", creates parent directories as needed. Default: "false".
+</define_tag>
+""".strip()
+
+DEFINE_MOVE_ITEM = """
+<define_tag name="move_item">
+Moves or renames a file or directory.
+Attributes:
+    - source (required): The path of the item to move.
+    - destination (required): The new path for the item.
+</define_tag>
+""".strip()
+
+DEFINE_DELETE_ITEM = """
+<define_tag name="delete_item">
+Deletes a file or an entire directory recursively.
+Attributes:
+    - path (required): The path of the item to delete.
 </define_tag>
 """.strip()
 
 
-class ListFilesTool(tool.BaseTool):
+# --- Base Class for Filesystem Tools ---
 
-    name = "list_files"
-    definition = DEFINE_LIST_FILES
+class FileSystemTool(tool.BaseTool):
+    """
+    An abstract base class for tools that interact with the filesystem,
+    providing shared security and execution logic.
+    """
+    definition = ""  # Should be overridden by subclasses
 
     def __init__(self, root_path="."):
-        # セキュリティのため、実際のルートパスからの相対パスとして動作させる
+        super().__init__()  # BaseToolの__init__を呼び出す
         self.root_path = os.path.abspath(root_path)
         logger.info(
-            f"ListFilesTool initialized with root path: {
-                self.root_path}")
-
-    def list_files_sync(self, path_attr: str) -> str:
-        """同期的にファイルリストを取得する内部メソッド"""
-        target_path = os.path.abspath(os.path.join(self.root_path, path_attr))
-        if not target_path.startswith(self.root_path):
-            raise PermissionError(
-                "Access denied: Path is outside the allowed root directory.")
-
-        if not os.path.exists(target_path):
-            return f"Error: Path does not exist - '{path_attr}'"
-
-        if not os.path.isdir(target_path):
-            return f"Error: Path is not a directory - '{path_attr}'"
-
-        try:
-            files = os.listdir(target_path)
-            if not files:
-                return f"Directory '{path_attr}' is empty."
-            return '\n'.join(files)
-        except Exception as e:
-            return f"Error listing files in '{path_attr}': {e}"
-
-    async def run(self, element: lpml.Element, result_queue: Queue):
-        attributes = element.get("attributes", {})
-        path = attributes.get("path")
-
-        if path is None:
-            result_content = "Error: 'path' attribute is missing."
-        else:
-            try:
-                # I/O処理はブロッキングなので、別スレッドで実行するのが望ましい
-                # ここでは簡略化のため直接呼び出します
-                result_content = '\n' + self.list_files_sync(path) + '\n'
-            except Exception as e:
-                logger.error(f"Error in ListFilesTool: {e}", exc_info=True)
-                result_content = f"Error: {e}"
-
-        # 結果をoutputタグを持つElementとしてキューに入れる
-        output_element = lpml.generate_element(
-            tag="output",
-            content=result_content,
-            tool=self.name,
-            **attributes  # 元の属性や追加ラベルなど全部返してやる
+            f"{self.__class__.__name__} initialized with root: {self.root_path}"
         )
-        await result_queue.put(output_element)
-
-
-class ReadFileTool(tool.BaseTool):
-    """Reads content from a specified file."""
-
-    name = "read_file"
-    definition = DEFINE_READ_FILE
-
-    def __init__(self, root_path="."):
-        self.root_path = os.path.abspath(root_path)
-        logger.info(
-            f"{self.__class__.__name__} initialized with root: {self.root_path}")
 
     def _get_safe_path(self, path: str) -> str:
+        """
+        Validates and returns an absolute path within the root directory.
+        Raises PermissionError if the path is outside the root directory.
+        """
+        if not path:
+            raise ValueError("Path attribute cannot be empty.")
+
         safe_path = os.path.abspath(os.path.join(self.root_path, path))
         if not safe_path.startswith(self.root_path):
             raise PermissionError(
-                "Access denied: Path is outside the allowed root directory.")
+                "Access denied: Path is outside the allowed root directory."
+            )
         return safe_path
 
-    async def run(self, element: lpml.Element, result_queue: Queue):
-        attributes = element.get("attributes", {})
-        path = attributes.get("path")
-        show_line_numbers = attributes.get(
-            "line_numbers", "false").lower() == "true"
-
-        if path is None:
-            result_content = "Error: 'path' attribute is missing."
-        else:
-            try:
-                target_path = self._get_safe_path(path)
-                if not os.path.exists(target_path):
-                    result_content = f"Error: File not found - '{path}'"
-                elif not os.path.isfile(target_path):
-                    result_content = f"Error: Path is not a file - '{path}'"
-                else:
-                    with open(target_path, 'r', encoding='utf-8') as f:
-                        if show_line_numbers:
-                            lines = f.readlines()
-                            result_content = "".join(
-                                f"{i + 1}: {line}" for i, line in enumerate(lines))
-                        else:
-                            result_content = f.read()
-            except Exception as e:
-                logger.error(f"Error in {self.name}: {e}", exc_info=True)
-                result_content = f"Error: {e}"
-
-        output_element = lpml.generate_element(
-            "output", result_content, tool=self.name, **attributes)
-        await result_queue.put(output_element)
-
-
-class WriteFileTool(tool.BaseTool):
-    """Writes content to a specified file with various modes."""
-
-    name = "write_file"
-    definition = DEFINE_WRITE_FILE
-
-    def __init__(self, root_path="."):
-        self.root_path = os.path.abspath(root_path)
-        logger.info(
-            f"{self.__class__.__name__} initialized with root: {self.root_path}")
-
-    def _get_safe_path(self, path: str) -> str:
-        safe_path = os.path.abspath(os.path.join(self.root_path, path))
-        if not safe_path.startswith(self.root_path):
-            raise PermissionError(
-                "Access denied: Path is outside the allowed root directory.")
-        return safe_path
-
-    def _write_sync(self, element: lpml.Element) -> str:
-        """Synchronous internal method to handle all write logic."""
-        attributes = element.get("attributes", {})
-        path = attributes.get("path")
-        mode = attributes.get("mode", "overwrite")
-        content = element.get("content", "")
-
-        if path is None:
-            return "Error: 'path' attribute is missing."
-
-        target_path = self._get_safe_path(path)
-
-        # Ensure parent directory exists
-        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-
-        if mode == "overwrite":
-            with open(target_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            return f"Successfully overwrote {len(content)} characters to '{path}'."
-
-        elif mode == "append":
-            with open(target_path, 'a', encoding='utf-8') as f:
-                f.write(content)
-            return f"Successfully appended {len(content)} characters to '{path}'."
-
-        elif mode in ["replace_lines", "insert_at_line"]:
-            try:
-                if not os.path.exists(target_path):
-                    if mode == 'insert_at_line' and int(
-                            attributes.get('line', 1)) == 1:
-                        lines = []  # Treat as inserting into an empty file
-                    else:
-                        return f"Error: File not found for mode '{mode}' - '{path}'"
-                else:
-                    with open(target_path, 'r', encoding='utf-8') as f:
-                        lines = f.readlines()
-
-                if mode == "insert_at_line":
-                    line_num = int(attributes.get("line", 1)) - \
-                        1  # 1-indexed to 0-indexed
-                    if not (0 <= line_num <= len(lines)):
-                        return f"Error: Line number {line_num + 1} is out of bounds for insertion."
-                    lines.insert(line_num, content + '\n')
-
-                elif mode == "replace_lines":
-                    start = int(attributes.get("start_line", 1)) - 1
-                    end = int(attributes.get("end_line", start + 1)) - 1
-                    if not (0 <= start <= end < len(lines)):
-                        return f"Error: Line range {start + 1}-{end + 1} is out of bounds."
-                    lines = lines[:start] + [content + '\n'] + lines[end + 1:]
-
-                with open(target_path, 'w', encoding='utf-8') as f:
-                    f.writelines(lines)
-                return f"Successfully modified '{path}' with mode '{mode}'."
-
-            except (ValueError, KeyError) as e:
-                return f"Error: Missing or invalid line number attribute for mode '{mode}'. Details: {e}"
-        else:
-            return f"Error: Unknown write mode '{mode}'."
-
-    async def run(self, element: lpml.Element, result_queue: Queue):
+    async def run(self, element: lpml.Element):
+        """
+        Generic async run handler that wraps synchronous file operations.
+        Results are put into the system's result queue.
+        """
         attributes = element.get("attributes", {})
         try:
-            # Note: For a production system, this blocking I/O should be
-            # run in a separate thread via asyncio.to_thread
-            result_content = self._write_sync(element)
+            # For production, blocking I/O should run in a separate thread
+            # via asyncio.to_thread to avoid blocking the event loop.
+            result_content = self._sync_logic(element)
         except Exception as e:
             logger.error(f"Error in {self.name}: {e}", exc_info=True)
             result_content = f"Error: An unexpected error occurred. {e}"
 
         output_element = lpml.generate_element(
-            "output", result_content, tool=self.name, **attributes)
-        await result_queue.put(output_element)
+            "output", "\n" + result_content + "\n",
+            tool=self.name, **attributes
+        )
+        # self.system 経由で結果キューにアクセスする
+        await self.system.result_queue.put(output_element)
+
+    def _sync_logic(self, element: lpml.Element) -> str:
+        """
+        Placeholder for the synchronous logic of the tool.
+        Must be implemented by subclasses.
+        """
+        raise NotImplementedError(
+            "Subclasses must implement the _sync_logic method."
+        )
+
+
+# --- Tool Implementations ---
+
+class ListFilesTool(FileSystemTool):
+    name = "list_files"
+    definition = DEFINE_LIST_FILES
+
+    def _sync_logic(self, element: lpml.Element) -> str:
+        path = element.get("attributes", {}).get("path")
+        if path is None:
+            return "Error: 'path' attribute is missing."
+
+        target_path = self._get_safe_path(path)
+        if not os.path.isdir(target_path):
+            return f"Error: Path is not a directory - '{path}'"
+
+        files = os.listdir(target_path)
+        return '\n'.join(files) if files else f"Directory '{path}' is empty."
+
+
+class ReadFileTool(FileSystemTool):
+    name = "read_file"
+    definition = DEFINE_READ_FILE
+
+    def _sync_logic(self, element: lpml.Element) -> str:
+        attributes = element.get("attributes", {})
+        path = attributes.get("path")
+        show_lines = attributes.get("line_numbers", "false").lower() == "true"
+
+        if path is None:
+            return "Error: 'path' attribute is missing."
+
+        target_path = self._get_safe_path(path)
+        if not os.path.isfile(target_path):
+            return f"Error: Path is not a file - '{path}'"
+
+        with open(target_path, 'r', encoding='utf-8') as f:
+            if show_lines:
+                lines = f.readlines()
+                return "".join(f"{i+1}: {line}" for i, line in enumerate(lines))
+            return f.read()
+
+
+class WriteFileTool(FileSystemTool):
+    name = "write_file"
+    definition = DEFINE_WRITE_FILE
+
+    def _sync_logic(self, element: lpml.Element) -> str:
+        # (The complex logic from the previous version is moved here)
+        # ... (implementation is long, so it's placed at the end for clarity)
+        return self._write_logic(element)
+
+    def _write_logic(self, element: lpml.Element) -> str:
+        # ... (Implementation from previous response)
+        attributes = element.get("attributes", {})
+        path = attributes.get("path")
+        mode = attributes.get("mode", "overwrite")
+        content = element.get("content", "")
+        content = lpml.deparse(content).strip("\n")
+
+        if path is None:
+            return "Error: 'path' attribute is missing."
+
+        target_path = self._get_safe_path(path)
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+
+        if mode == "overwrite":
+            with open(target_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            return f"Successfully overwrote file '{path}'."
+
+        if mode == "append":
+            with open(target_path, 'a', encoding='utf-8') as f:
+                f.write(content)
+            return f"Successfully appended to file '{path}'."
+
+        try:
+            lines = []
+            if os.path.exists(target_path):
+                with open(target_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+
+            if mode == "insert_at_line":
+                line_num = int(attributes.get("line", 1)) - 1
+                lines.insert(line_num, content + '\n')
+            elif mode == "replace_lines":
+                start = int(attributes.get("start_line", 1)) - 1
+                end = int(attributes.get("end_line", start + 1)) - 1
+                lines = lines[:start] + [content + '\n'] + lines[end+1:]
+            else:
+                return f"Error: Unknown write mode '{mode}'."
+
+            with open(target_path, 'w', encoding='utf-8') as f:
+                f.writelines(lines)
+            return f"Successfully modified '{path}' with mode '{mode}'."
+
+        except (ValueError, KeyError, IndexError) as e:
+            return f"Error: Invalid attributes for mode '{mode}'. Details: {e}"
+
+
+class CreateDirectoryTool(FileSystemTool):
+    name = "create_directory"
+    definition = DEFINE_CREATE_DIRECTORY
+
+    def _sync_logic(self, element: lpml.Element) -> str:
+        attributes = element.get("attributes", {})
+        path = attributes.get("path")
+        create_parents = attributes.get("parents", "false").lower() == "true"
+
+        if path is None:
+            return "Error: 'path' attribute is missing."
+
+        target_path = self._get_safe_path(path)
+        if os.path.exists(target_path):
+            return f"Error: Path already exists - '{path}'"
+
+        if create_parents:
+            os.makedirs(target_path, exist_ok=True)
+        else:
+            if not os.path.exists(os.path.dirname(target_path)):
+                return "Error: Parent directory does not exist. Use parents=\"true\"."
+            os.mkdir(target_path)
+
+        return f"Successfully created directory '{path}'."
+
+
+class MoveItemTool(FileSystemTool):
+    name = "move_item"
+    definition = DEFINE_MOVE_ITEM
+
+    def _sync_logic(self, element: lpml.Element) -> str:
+        attributes = element.get("attributes", {})
+        source = attributes.get("source")
+        destination = attributes.get("destination")
+
+        if not source or not destination:
+            return "Error: 'source' and 'destination' attributes are required."
+
+        source_path = self._get_safe_path(source)
+        dest_path = self._get_safe_path(destination)
+
+        if not os.path.exists(source_path):
+            return f"Error: Source path does not exist - '{source}'"
+        if os.path.exists(dest_path):
+            return f"Error: Destination path already exists - '{destination}'"
+
+        shutil.move(source_path, dest_path)
+        return f"Successfully moved '{source}' to '{destination}'."
+
+
+class DeleteItemTool(FileSystemTool):
+    name = "delete_item"
+    definition = DEFINE_DELETE_ITEM
+
+    def _sync_logic(self, element: lpml.Element) -> str:
+        path = element.get("attributes", {}).get("path")
+        if path is None:
+            return "Error: 'path' attribute is missing."
+
+        target_path = self._get_safe_path(path)
+        if not os.path.exists(target_path):
+            return f"Error: Path does not exist - '{path}'"
+
+        if os.path.isfile(target_path):
+            os.remove(target_path)
+            return f"Successfully deleted file '{path}'."
+        elif os.path.isdir(target_path):
+            shutil.rmtree(target_path)
+            return f"Successfully deleted directory '{path}' and its contents."
+        else:
+            return f"Error: Path is not a file or directory - '{path}'"

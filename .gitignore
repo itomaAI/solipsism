@@ -61,3 +61,5 @@ workspace/knowledge/*.md
 
 # Test archives (keep for reference but don't track changes)
 workspace/test_archive/
+
+workspace/context/

@@ -58,4 +58,4 @@ class GeminiLLM(BaseLLM):
                 temperature=self.temperature
             ),
         )
-        return response
+        return response.text
