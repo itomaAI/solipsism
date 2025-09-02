@@ -53,6 +53,13 @@ workspace/logs/*.log
 # UV
 .uv/
 
+# Python version and lock files
+.python-version
+uv.lock
+
+# Notebooks
+notebook/
+
 # Custom workspace content (except core structure)
 workspace/custom_tags/*.py
 !workspace/custom_tags/__init__.py
