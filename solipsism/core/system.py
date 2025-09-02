@@ -14,6 +14,7 @@ class System:
     def __init__(self):
         self.tools: Dict[str, BaseTool] = {}
         self.result_queue: asyncio.Queue[Element] = asyncio.Queue()
+        self.context_id: Optional[str] = None  # どのコンテクストに属しているかを保持
         logger.info("System initialized.")
 
     def add_tool(self, tool: BaseTool):
@@ -40,7 +41,7 @@ class System:
         logger.info("Processing LLM output for tool execution...")
         try:
             exclude = ["define_tag", "rule", "send", "code"]
-            exclude += list(self.tools.keys())
+            exclude += [key for key in self.tools.keys() if key != 'create_context']
             tree = parse(lpml_string, exclude=exclude)
         except Exception as e:
             logger.error(f"Failed to parse LPML string: {e}", exc_info=True)
@@ -51,7 +52,6 @@ class System:
             tool_elements = findall(tree, tag_name)
             for element in tool_elements:
                 logger.info(f"Found tool tag: <{tag_name}>. Scheduling execution.")
-                # runにキューを渡さず、タスクを作成する
                 task = asyncio.create_task(tool.run(element))
                 tasks_to_run.append(task)
 
