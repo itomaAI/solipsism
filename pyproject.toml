@@ -5,8 +5,17 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "beautifulsoup4>=4.13.5",
+    "duckduckgo-search>=8.1.1",
+    "fastapi>=0.116.1",
+    "google-api-core>=2.25.1",
     "google-genai>=1.32.0",
+    "lxml>=6.0.1",
+    "pandas>=2.3.2",
     "python-dotenv>=1.1.1",
+    "requests>=2.32.5",
+    "streamlit>=1.49.1",
+    "uvicorn>=0.35.0",
 ]
 
 [dependency-groups]

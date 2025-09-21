@@ -15,6 +15,7 @@ DEFINE_LIST_FILES = """
 Lists all files and directories at a given path.
 Attributes:
     - path (required): The directory path to list.
+    - recursive (optional): If "true", lists contents of subdirectories recursively. Default: "false".
 </define_tag>
 """.strip()
 
@@ -133,8 +134,12 @@ class ListFilesTool(FileSystemTool):
     name = "list_files"
     definition = DEFINE_LIST_FILES
 
+
     def _sync_logic(self, element: lpml.Element) -> str:
-        path = element.get("attributes", {}).get("path")
+        attributes = element.get("attributes", {})
+        path = attributes.get("path")
+        recursive = attributes.get("recursive", "false").lower() == "true"
+
         if path is None:
             return "Error: 'path' attribute is missing."
 
@@ -142,8 +147,24 @@ class ListFilesTool(FileSystemTool):
         if not os.path.isdir(target_path):
             return f"Error: Path is not a directory - '{path}'"
 
-        files = os.listdir(target_path)
-        return '\n'.join(files) if files else f"Directory '{path}' is empty."
+        if recursive:
+            output_lines = []
+            for root, dirs, files in os.walk(target_path):
+                # Calculate relative path from the target_path
+                relative_root = os.path.relpath(root, target_path)
+                if relative_root == ".":
+                    prefix = ""
+                else:
+                    prefix = relative_root + os.sep
+                
+                for d in sorted(dirs): # Sort for consistent output
+                    output_lines.append(f"{prefix}{d}/")
+                for f in sorted(files): # Sort for consistent output
+                    output_lines.append(f"{prefix}{f}")
+            return '\n'.join(output_lines) if output_lines else f"Directory '{path}' is empty."
+        else:
+            files = os.listdir(target_path)
+            return '\n'.join(sorted(files)) if files else f"Directory '{path}' is empty." # Sort for consistent output
 
 
 class ReadFileTool(FileSystemTool):
@@ -198,6 +219,14 @@ class WriteFileTool(FileSystemTool):
             return f"Successfully overwrote file '{path}'."
 
         if mode == "append":
+            # Ensure new content starts on a new line if current file doesn't end with one
+            if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+                with open(target_path, 'rb') as f: # Open in binary mode to read last byte
+                    f.seek(-1, os.SEEK_END)
+                    last_char = f.read(1)
+                    if last_char != b'\n':
+                        content = '\n' + content # Prepend a newline
+
             with open(target_path, 'a', encoding='utf-8') as f:
                 f.write(content)
             return f"Successfully appended to file '{path}'."

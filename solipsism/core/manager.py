@@ -1,12 +1,13 @@
 import asyncio
+import inspect
 import logging
-from typing import Dict, Any, List, Type
+from typing import Any, Dict, List, Optional, Type
 
+from ..tools.manager_tools import CreateContextTool, SendTool
 from .context import Context
-from .system import System
 from .llm import GeminiLLM
+from .system import System
 from .tool import BaseTool
-from ..tools.manager_tools import SendTool, CreateContextTool
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class Manager:
         self.contexts[context.id] = context
         logger.info(f"Context '{context.id}' added to Manager.")
 
-    def get_context(self, context_id: str) -> Any or None:
+    def get_context(self, context_id: str) -> Optional[Any]:
         """IDを指定して登録済みのコンテクストを取得する。"""
         return self.contexts.get(context_id)
 
@@ -42,25 +43,43 @@ class Manager:
         """
         新しいLLMコンテクストを動的に生成し、親子関係を構築して起動する。
         """
-        # ... (このメソッド内のロジックは変更なし)
         logger.info(f"Context creation requested by '{parent_id}'...")
-        
+
         llm_config = llm_config or {}
-        new_llm = GeminiLLM(model=llm_config.get("model"), temperature=float(llm_config.get("temperature", 0.7)))
+        new_llm = GeminiLLM(
+            model=llm_config.get("model"),
+            temperature=float(llm_config.get("temperature", 0.7))
+        )
         new_system = System()
 
         for tool_name in tool_names:
             if tool_name in self.tool_catalog:
                 tool_class = self.tool_catalog[tool_name]
-                new_system.add_tool(tool_class("./"))
+                try:
+                    sig = inspect.signature(tool_class.__init__)
+                    if 'manager' in sig.parameters:
+                        instance = tool_class(manager=self)
+                    else:
+                        instance = tool_class("./")
+                    new_system.add_tool(instance)
+                except Exception as e:
+                    logger.error(
+                        f"Failed to instantiate tool '{tool_name}': {e}",
+                        exc_info=True
+                    )
             else:
-                logger.warning(f"Tool '{tool_name}' not found in catalog. Skipping.")
-        
+                logger.warning(
+                    f"Tool '{tool_name}' not found in catalog. Skipping."
+                )
+
+        # These tools are essential and always added with correct dependencies.
         new_system.add_tool(SendTool(self))
         new_system.add_tool(CreateContextTool(self))
 
-        final_prompt_path = prompt_path or "./solipsism/prompts/root_prompt.lpml"
-        
+        final_prompt_path = (
+            prompt_path or "./solipsism/prompts/root_prompt.lpml"
+        )
+
         new_context = Context(
             llm=new_llm,
             system=new_system,
@@ -77,18 +96,25 @@ class Manager:
             parent_context.child_ids.append(new_context.id)
 
         self.add_context(new_context)
-        
+
         initial_task = (
-            f"You were created by context '{parent_id}'. Your parent is your sole point of contact.\n"
+            f"You were created by context '{parent_id}'. Your parent is your "
+            f"sole point of contact.\n"
             f"Your task is: {task}"
         )
-        
-        asyncio.create_task(new_context.start(initial_task=initial_task, max_turns=100))
-        
-        logger.info(f"New context '{new_context.id}' has been created and started.")
+
+        asyncio.create_task(
+            new_context.start(initial_task=initial_task, max_turns=100)
+        )
+
+        logger.info(
+            f"New context '{new_context.id}' has been created and started."
+        )
         return new_context
 
-    async def route_message(self, from_id: str, to_id: str, element: dict) -> bool:
+    async def route_message(
+        self, from_id: str, to_id: str, element: dict
+    ) -> bool:
         """
         親子関係を検証し、許可された通信のみをルーティングする。
         """
@@ -96,17 +122,19 @@ class Manager:
         to_context = self.get_context(to_id)
 
         if not from_context or not to_context:
-            logger.error(f"Routing failed: Context not found (from: {from_id}, to: {to_id}).")
+            logger.error(
+                f"Routing failed: Context not found "
+                f"(from: {from_id}, to: {to_id})."
+            )
             return False
 
-        # --- 通信許可の検証 ---
         is_to_parent = (to_id == from_context.parent_id)
         is_to_child = (to_id in from_context.child_ids)
-        
-        # ★★★ 'is_user_involved' の例外を削除し、ルールを統一 ★★★
+
         if not (is_to_parent or is_to_child):
             logger.warning(
-                f"Routing DENIED: No parent-child relationship between '{from_id}' and '{to_id}'."
+                "Routing DENIED: No parent-child relationship between "
+                f"'{from_id}' and '{to_id}'."
             )
             return False
 

@@ -36,7 +36,6 @@ class RegisterTool(tool.BaseTool):
         self.tool_init_args = kwargs
 
     async def run(self, element: lpml.Element):
-        # ... (実装は変更なし)
         attributes = element.get("attributes", {})
         tool_to_register = attributes.get("name")
 
@@ -58,13 +57,15 @@ class RegisterTool(tool.BaseTool):
             await self.system.result_queue.put(output)
             return
 
-        if tool_to_register in self.system.tools:
-            error_content = f"Error: Tool '{tool_to_register}' is already registered."
-            output = lpml.generate_element(
-                "output", f"\n{error_content}\n", tool=self.name, **attributes
-            )
-            await self.system.result_queue.put(output)
-            return
+        # ▼▼▼ 修正箇所: 既存ツール登録チェックを削除し、上書きを許可する ▼▼▼
+        # if tool_to_register in self.system.tools:
+        #     error_content = f"Error: Tool '{tool_to_register}' is already registered."
+        #     output = lpml.generate_element(
+        #         "output", f"\n{error_content}\n", tool=self.name, **attributes
+        #     )
+        #     await self.system.result_queue.put(output)
+        #     return
+        # ▲▲▲ 修正箇所 ▲▲▲
 
         try:
             sig = inspect.signature(tool_class.__init__)
@@ -80,7 +81,10 @@ class RegisterTool(tool.BaseTool):
             new_tool_instance = tool_class(**params)
             self.system.add_tool(new_tool_instance)
             
-            success_content = f"Successfully registered tool '{tool_to_register}'."
+            # ▼▼▼ 以前の修正箇所 ▼▼▼
+            tool_definition = tool_class.definition if hasattr(tool_class, 'definition') else "定義は利用できません。"
+            success_content = f"Successfully registered tool '{tool_to_register}'.\n\nTool Definition:\n{tool_definition}"
+            # ▲▲▲ 以前の修正箇所 ▲▲▲
             output = lpml.generate_element(
                 "output", f"\n{success_content}\n", tool=self.name, **attributes
             )

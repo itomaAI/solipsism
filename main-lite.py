@@ -48,7 +48,7 @@ async def main():
     manager.add_context(user_context)
 
     # 5. 最初のLLMContextをUserContextの子としてセットアップする
-    llm = GeminiLLM(model="gemini-2.5-pro", thinking_budget=-1)
+    llm = GeminiLLM()# model="gemini-2.5-pro", thinking_budget=-1)
     llm_system = System()
 
     # 初期コンテクストに基本的なツール群を付与する
@@ -113,7 +113,7 @@ async def main():
         "Start by introducing yourself to your parent (the user)."
     )
     
-    llm_task = llm_context.start(initial_task=initial_task, max_turns=100, turn_sleep=15)
+    llm_task = llm_context.start(initial_task=initial_task, max_turns=1000, turn_sleep=5)
     chat_task = chat_interface.start()
 
     await asyncio.gather(llm_task, chat_task)
