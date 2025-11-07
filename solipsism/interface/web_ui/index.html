@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solipsism Web UI</title>
+    <!-- FIX: Updated static file paths -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Solipsism Web UI</h1>
+            <div id="status-light" class="disconnected" title="Connection Status"></div>
+        </header>
+        <div class="main-content">
+            <div id="context-selector">
+                <h2>Contexts</h2>
+                <ul id="context-list"></ul>
+            </div>
+            <div id="log-container">
+                <div id="log-header">
+                    <h2 id="current-context-id">No Context Selected</h2>
+                </div>
+                <div id="log-content"></div>
+            </div>
+        </div>
+        <footer>
+            <textarea id="message-input" placeholder="Enter your message..."></textarea>
+            <button id="send-button">Send</button>
+        </footer>
+    </div>
+    <!-- FIX: Updated static file paths -->
+    <script src="/static/script.js"></script>
+</body>
+</html>

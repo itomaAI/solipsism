@@ -1,0 +1,112 @@
+:root {
+    --border-color: #ddd;
+    --background-light: #f9f9f9;
+    --background-dark: #f0f0f0;
+    --text-color: #333;
+    /* --- FIX: Updated color palette --- */
+    --system-color: #6c757d;  /* Gray */
+    --assistant-color: #198754; /* Green */
+    --user-color: #0d6efd;     /* Blue */
+    --report-color: #dc3545;   /* Red */
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    margin: 0;
+    background-color: var(--background-dark);
+    color: var(--text-color);
+    font-size: 16px;
+}
+
+.container { display: flex; flex-direction: column; height: 100vh; }
+
+header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0 20px; border-bottom: 1px solid var(--border-color);
+    background-color: white; flex-shrink: 0;
+}
+header h1 { font-size: 1.2em; }
+#status-light { width: 12px; height: 12px; border-radius: 50%; }
+.connected { background-color: #28a745; }
+.disconnected { background-color: #dc3545; }
+
+.main-content { display: flex; flex-grow: 1; overflow: hidden; }
+
+#context-selector {
+    width: 200px; border-right: 1px solid var(--border-color);
+    background-color: var(--background-light); padding: 10px;
+    overflow-y: auto; flex-shrink: 0;
+}
+#context-list { list-style: none; padding: 0; margin: 0; }
+#context-list li { padding: 8px; cursor: pointer; border-radius: 4px; margin-bottom: 5px; }
+#context-list li:hover { background-color: #e9ecef; }
+#context-list li.active { background-color: var(--user-color); color: white; font-weight: bold; }
+
+#log-container {
+    flex-grow: 1; display: flex; flex-direction: column;
+    overflow: hidden; background-color: white;
+}
+#log-header {
+    padding: 10px 20px; border-bottom: 1px solid var(--border-color);
+    background-color: var(--background-light); flex-shrink: 0;
+}
+#log-header h2 { margin: 0; font-size: 1em; }
+#log-content { flex-grow: 1; overflow-y: auto; padding: 10px 20px; }
+
+/* --- FIX: Updated message styling --- */
+.message {
+    margin-bottom: 12px;
+    padding: 10px 15px;
+    border-radius: 5px;
+    border: 1px solid var(--border-color);
+    border-left-width: 5px; /* Make left border thicker */
+    background-color: var(--background-light);
+}
+.message.user {
+    border-left-color: var(--user-color);
+    background-color: rgba(13, 110, 253, 0.05); /* Blue, 5% opacity */
+}
+.message.system {
+    border-left-color: var(--system-color);
+    background-color: rgba(108, 117, 125, 0.05); /* Gray, 5% opacity */
+}
+.message.assistant {
+    border-left-color: var(--assistant-color);
+    background-color: rgba(25, 135, 84, 0.05); /* Green, 5% opacity */
+}
+.message.report-to-user { /* 提案2で使うレポート用のスタイル */
+    border-left-color: var(--report-color);
+    background-color: rgba(220, 53, 69, 0.05); /* Red, 5% opacity */
+    margin-top: 10px; /* メインメッセージとの間に少し余白を設ける */
+}
+.message.user { border-left-color: var(--user-color); }
+.message.system { border-left-color: var(--system-color); }
+.message.assistant { border-left-color: var(--assistant-color); }
+.message.assistant.report-to-user { border-left-color: var(--report-color); }
+
+.message strong {
+    display: block; margin-bottom: 8px; font-size: 0.8em;
+    color: #555; font-weight: 600;
+}
+.message pre {
+    white-space: pre-wrap; word-wrap: break-word; margin: 0;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.9em;
+    color: #222;
+}
+
+footer {
+    display: flex; padding: 10px 20px;
+    border-top: 1px solid var(--border-color);
+    background-color: var(--background-light); flex-shrink: 0;
+}
+#message-input {
+    flex-grow: 1; padding: 10px; border: 1px solid var(--border-color);
+    border-radius: 5px; resize: none; font-size: 1em;
+}
+#send-button {
+    margin-left: 10px; padding: 10px 20px; border: none;
+    background-color: var(--user-color); color: white;
+    border-radius: 5px; cursor: pointer; font-size: 1em;
+}
+#send-button:hover { background-color: #0b5ed7; }
