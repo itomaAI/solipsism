@@ -111,3 +111,4 @@ class ToolManager:
         発見したすべてのツールクラスのカタログを返す。
         """
         return self.tool_catalog
+

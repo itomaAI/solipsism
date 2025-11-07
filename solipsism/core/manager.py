@@ -20,6 +20,7 @@ class Manager:
     def __init__(self, tool_catalog: Dict[str, Type[BaseTool]]):
         self.contexts: Dict[str, Any] = {}
         self.tool_catalog = tool_catalog
+        self.tool_catalog = self.tool_manager.get_all_tool_classes()
         logger.info("Manager initialized.")
 
     def add_context(self, context: Any):
@@ -47,7 +48,7 @@ class Manager:
 
         llm_config = llm_config or {}
         new_llm = GeminiLLM(
-            model=llm_config.get("model"),
+            model=llm_config.get("model") or "gemini-2.5-pro",
             temperature=float(llm_config.get("temperature", 0.7))
         )
         new_system = System()
@@ -90,6 +91,7 @@ class Manager:
             if self.get_context(custom_id):
                 raise ValueError(f"Context ID '{custom_id}' already exists.")
             new_context.id = custom_id
+            new_context.system.context_id = custom_id
 
         parent_context = self.get_context(parent_id)
         if parent_context:
