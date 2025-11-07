@@ -20,7 +20,6 @@ class Manager:
     def __init__(self, tool_catalog: Dict[str, Type[BaseTool]]):
         self.contexts: Dict[str, Any] = {}
         self.tool_catalog = tool_catalog
-        self.tool_catalog = self.tool_manager.get_all_tool_classes()
         logger.info("Manager initialized.")
 
     def add_context(self, context: Any):
